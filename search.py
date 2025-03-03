@@ -80,33 +80,47 @@ def get_specific_verse(surah_name, verse_number):
         )
         
         if result.records:
+            print(f"✅ Ditemukan ayat {verse_number} dari surah {surah_name}: {result.records}")
             return result.records
-        return None
+        else:
+            print(f"⚠️ Tidak ditemukan ayat {verse_number} di surah {surah_name}")
+            return None
         
     except Exception as e:
-        print(f"Error query spesifik: {traceback.format_exc()}")
+        print(f"❌ Error query spesifik: {traceback.format_exc()}")
         return None
+
+
 
 def process_vector_query(query_text):
     try:
         query_vector = Embedder.embed_text(query_text)
+        print(f"🔍 Embedding query dimensi: {len(query_vector)}")  # Tambahkan debugging
+
         result = driver.execute_query(
             """CALL db.index.vector.queryNodes('ayat_embeddings', 5, $query_vector)
             YIELD node, score
             MATCH (s:Surah)-[:HAS_AYAT]->(node)
-            RETURN node.id as id, 
-                   score, 
-                   node.text as text,
+            RETURN node.text as text, 
                    s.name_latin as surah,
-                   node.number as ayat_number
+                   node.number as ayat_number, 
+                   score
             ORDER BY score DESC
             LIMIT 3""",
             query_vector=query_vector
         )
+        
+        if result.records:
+            print(f"✅ Hasil pencarian vektor: {result.records}")  # Tambahkan debugging
+        else:
+            print(f"⚠️ Tidak ada hasil dari vector search.")
+        
         return result.records
+    
     except Exception as e:
-        print(f"Error vector search: {traceback.format_exc()}")
+        print(f"❌ Error vector search: {traceback.format_exc()}")
         return []
+
 
 def build_context(records, is_specific=False):
     context = []
@@ -142,9 +156,31 @@ Anda adalah AI Asisten ahli tafsir Al-Quran. Berikan jawaban dengan struktur:
 {query_text}"""
 
     if is_specific:
-        base_prompt += "\n\n**CATATAN**: User meminta ayat spesifik. Fokuskan jawaban pada ayat tersebut meskipun konteks terbatas."
+        base_prompt += "\n\n**CATATAN**: User meminta ayat spesifik. Fokuskan jawaban pada ayat tersebut."
 
+    print(f"🔍 Prompt yang dikirim ke Groq API:\n{base_prompt}")  # Debugging
     return base_prompt
+
+def get_verse_by_text(text):
+    """Cari ayat berdasarkan teks jika vector search gagal."""
+    try:
+        result = driver.execute_query(
+            """MATCH (s:Surah)-[:HAS_AYAT]->(a:Ayat)
+            WHERE a.text CONTAINS $text
+            RETURN s.name_latin as surah, a.number as ayat_number, a.text as arabic""",
+            {"text": text}
+        )
+        
+        if result.records:
+            print(f"✅ Ditemukan langsung dengan pencarian teks: {result.records}")
+            return result.records
+        else:
+            print(f"⚠️ Tidak ada hasil dari pencarian teks langsung.")
+            return None
+    except Exception as e:
+        print(f"❌ Error pencarian teks: {traceback.format_exc()}")
+        return None
+
 
 def process_query(query_text, retriever, GROQ_API_KEY, GROQ_MODEL):
     try:
