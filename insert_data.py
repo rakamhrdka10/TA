@@ -5,10 +5,6 @@ from tqdm import tqdm
 from config import driver, DIMENSION
 from groq_embedder import Embedder
 
-text_sample = "Tes untuk mengetahui dimensi embedding."
-embedding_sample = Embedder.embed_text(text_sample)
-print(f"Dimensi embedding yang dihasilkan: {len(embedding_sample)}")
-
 def chunk_text(text, max_tokens=512, overlap=50):
     words = text.split()
     chunks = []
@@ -51,10 +47,10 @@ def insert_quran_data():
             progress_bar = tqdm(total=total_ayat, desc="Memproses Ayat")
             
             for surah in quran_data:
-                surah_id = surah["number"]
+                surah_id = int(surah["number"])
                 surah_name = surah["name"]
                 surah_name_latin = surah["name_latin"]
-                number_of_ayah = surah["number_of_ayah"]
+                number_of_ayah = int(surah["number_of_ayah"])
                 
                 surah_text = f"Surah {surah_name} ({surah_name_latin}), jumlah ayat {number_of_ayah}"
                 surah_chunks = chunk_text(surah_text)
@@ -75,19 +71,21 @@ def insert_quran_data():
                         CREATE (q)-[:HAS_SURAH]->(s)
                     """,
                     {
-                        "number": int(surah_id),
+                        "number": surah_id,
                         "name": surah_name,
                         "name_latin": surah_name_latin,
-                        "number_of_ayah": int(number_of_ayah),
+                        "number_of_ayah": number_of_ayah,
                         "embedding": flattened_surah_embedding
                     }
                 )
                 
                 for ayah_num, ayah_text in surah["text"].items():
-                    translation = surah["translations"]["id"]["text"].get(ayah_num, "")
-                    tafsir = surah["tafsir"]["id"]["kemenag"]["text"].get(ayah_num, "")
+                    translation = surah.get("translations", {}).get("id", {}).get("text", {}).get(ayah_num, "")
+                    tafsir = surah.get("tafsir", {}).get("id", {}).get("kemenag", {}).get("text", {}).get(ayah_num, "")
+
+                    # Format teks yang akan di-embed (termasuk nomor ayat)
+                    combined_text = f"Surah {surah_name} Ayat {ayah_num}: {ayah_text} | Terjemahan: {translation} | Tafsir: {tafsir}"
                     
-                    combined_text = f"Surah {surah_name} Ayat {ayah_num}: {ayah_text} {translation} {tafsir}"
                     ayah_chunks = chunk_text(combined_text)
                     ayah_embeddings = [Embedder.embed_text(chunk) for chunk in ayah_chunks]
                     
@@ -99,14 +97,18 @@ def insert_quran_data():
                             CREATE (a:Ayat {
                                 number: $number,
                                 text: $text,
+                                translation: $translation,
+                                tafsir: $tafsir,
                                 embedding: $embedding
                             })
                             CREATE (s)-[:HAS_AYAT]->(a)
                         """,
                         {
-                            "surah_number": int(surah_id),
+                            "surah_number": surah_id,
                             "number": int(ayah_num),
                             "text": ayah_text,
+                            "translation": translation,
+                            "tafsir": tafsir,
                             "embedding": flattened_ayah_embedding
                         }
                     )
